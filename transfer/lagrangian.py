@@ -12,12 +12,11 @@ from scipy.spatial import cKDTree
 from unyt import unyt_array
 
 
-@njit
 def parse_lagrangian_regions(
-    initial_particle_ids: int64[:],
-    initial_lagrangian_regions: int32[:],
-    comparison_particle_ids: int64[:],
-) -> int32[:]:
+    initial_particle_ids: int64,
+    initial_lagrangian_regions: int32,
+    comparison_particle_ids: int64,
+) -> int32:
     """
     Parses the Lagrangian Regions from the initial conditions to the output
     particle types. This is required as some particles will have disappeared.
@@ -60,7 +59,7 @@ def parse_lagrangian_regions(
     """
 
     comparison_lagrangian_regions = initial_lagrangian_regions[
-        isin(comparison_particle_ids, initial_particle_ids, assume_unique=False)
+        isin(initial_particle_ids, comparison_particle_ids, assume_unique=False)
     ]
 
     return comparison_lagrangian_regions
@@ -69,9 +68,9 @@ def parse_lagrangian_regions(
 def calculate_gas_lagrangian_regions(
     dark_matter_coordinates: unyt_array,
     gas_coordinates: unyt_array,
-    dark_matter_lagrangian_regions: int32[:],
+    dark_matter_lagrangian_regions: int32,
     boxsize: unyt_array,
-) -> int32[:]:
+) -> int32:
     """
     Computes the Lagrangian Regions for gas particles by using a tree of their
     co-ordinates and the (defined) Lagrangian Regions for dark matter.

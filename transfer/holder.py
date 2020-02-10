@@ -65,6 +65,7 @@ class SimulationData(object):
 
         self.associate_lagrangian_to_dark_matter()
         self.associate_initial_lagrangian_to_gas()
+        self.parse_lagrangian_regions()
         self.calculate_transfer()
 
         return
@@ -86,10 +87,10 @@ class SimulationData(object):
         initial_dm = self.initial_snapshot.dark_matter
         final_dm = self.final_snapshot.dark_matter
 
-        initial_dm.lagrangian_regions = initial_dm.haloes
-
-        final_dm.haloes = initial_dm.haloes
         final_dm.lagrangian_regions = final_dm.haloes
+
+        initial_dm.haloes = final_dm.haloes
+        initial_dm.lagrangian_regions = final_dm.haloes
 
         LOGGER.debug(
             (
@@ -134,10 +135,10 @@ class SimulationData(object):
         initial_gas_lrs = self.initial_snapshot.gas.lagrangian_regions
 
         for particle_type in ["gas", "stars"]:
-            particle_data = getattr(self.final_snapshot, particle_data, None)
+            particle_data = getattr(self.final_snapshot, particle_type, None)
 
             if particle_data is not None:
-                logger.info(f"Running LR parsing on {particle_type}")
+                LOGGER.info(f"Running LR parsing on {particle_type}")
 
                 lagrangian_regions = lagrangian.parse_lagrangian_regions(
                     initial_particle_ids=initial_gas_ids,
@@ -145,9 +146,13 @@ class SimulationData(object):
                     comparison_particle_ids=particle_data.particle_ids,
                 )
 
-                logger.info("Finished running cross matching for this particle type")
+                LOGGER.info("Finished running cross matching for this particle type")
 
-                particle_data.lagrangian_regions = lagrangian_regions
+                getattr(
+                    self.final_snapshot, particle_type
+                ).lagrangian_regions = lagrangian_regions
+            else:
+                LOGGER.info(f"No {particle_type} data available in final snapshot")
 
         return
 
@@ -158,13 +163,13 @@ class SimulationData(object):
         """
 
         if particle_type == "dark_matter":
-            return self.initial_snapshot.dark_matter.masses[0].value
+            return float64(self.initial_snapshot.dark_matter.masses[0].value)
         else:
             # Return gas particle mass (e.g. stars)
             if self.initial_snapshot.gas is not None:
-                return self.initial_snapshot.gas.masses[0]
+                return float64(self.initial_snapshot.gas.masses[0].value)
             else:
-                return 0.0
+                return float64(0.0)
 
     def calculate_transfer(self):
         """
@@ -180,14 +185,22 @@ class SimulationData(object):
 
             if particle_data is not None:
                 LOGGER.info(f"Beginning transfer calculation for {particle_type}")
+                LOGGER.debug(
+                    (
+                        "This particle type has: "
+                        f"{len(particle_data.haloes)} haloes, "
+                        f"{len(particle_data.lagrangian_regions)} LRs, "
+                        f"{len(particle_data.masses)} masses."
+                    )
+                )
                 setattr(
                     self,
                     f"{particle_type}_transfer",
                     calculate_transfer_masses(
                         haloes=particle_data.haloes,
                         lagrangian_regions=particle_data.lagrangian_regions,
-                        particle_masses=particle_data.masses,
-                        initial_particle_mass=initial_particle_masses,
+                        particle_masses=particle_data.masses.value,
+                        initial_particle_mass=initial_particle_mass,
                         number_of_groups=number_of_groups,
                     ),
                 )

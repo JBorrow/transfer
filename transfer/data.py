@@ -8,7 +8,7 @@ from transfer import LOGGER
 from typing import Union, Optional
 from numpy import array, full, int32
 from unyt import unyt_array
-from scipy.spatial import cKDTree as KDTree
+from scipy.spatial import cKDTree
 
 
 class ParticleData(object):
@@ -67,14 +67,14 @@ class ParticleData(object):
 
         try:
             self.haloes = self.haloes[mask]
-        except (NameError, TypeError):
+        except (NameError, TypeError, AttributeError):
             # Haloes does not exist.
             LOGGER.info("No haloes property found on this instance")
             pass
 
         try:
             self.lagrangian_regions = self.lagrangian_regions[mask]
-        except (NameError, TypeError):
+        except (NameError, TypeError, AttributeError):
             # Haloes does not exist.
             LOGGER.info("No lagrangian_regions property found on this instance")
             pass
@@ -122,7 +122,7 @@ class ParticleData(object):
 
         # Search the tree in blocks of haloes as this improves load balancing
         # by allowing the tree to parallelise.
-        block_size = 128
+        block_size = 1024
         number_of_haloes = halo_radii.size
         number_of_blocks = 1 + number_of_haloes // block_size
 
@@ -134,13 +134,13 @@ class ParticleData(object):
             starting_index = block * block_size
             ending_index = (block + 1) * (block_size)
 
-            if ending_index > number_of_parts:
-                ending_index = number_of_parts + 1
+            if ending_index > number_of_haloes:
+                ending_index = number_of_haloes + 1
 
             if starting_index >= ending_index:
                 break
 
-            _, particle_indicies = tree.query(
+            particle_indicies = tree.query_ball_point(
                 x=halo_coordinates[starting_index:ending_index].value,
                 r=halo_radii[starting_index:ending_index].value,
                 n_jobs=-1,
@@ -151,6 +151,9 @@ class ParticleData(object):
 
         self.haloes = haloes
 
+        LOGGER.debug(
+            f"Maximal halo ID = {haloes.max()}. Number of haloes: {number_of_haloes}"
+        )
         LOGGER.info("Finished tree search")
 
         return

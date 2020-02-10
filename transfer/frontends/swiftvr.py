@@ -11,7 +11,6 @@ from swiftsimio import load as load_snapshot
 
 from transfer.data import ParticleData, SnapshotData
 
-
 from typing import Optional
 from unyt import unyt_array
 
@@ -104,11 +103,17 @@ class SWIFTSnapshotData(SnapshotData):
         centrals = catalogue.structure_type.structuretype == 10
         self.number_of_groups = centrals.sum()
 
-        halo_coordinates = unyt_array(
-            [getattr(catalogue, f"{x}cmbp")[centrals] for x in ["x", "y", "z"]]
-        ).T
+        halo_coordinates = (
+            unyt_array(
+                [
+                    getattr(catalogue.positions, f"{x}cmbp")[centrals]
+                    for x in ["x", "y", "z"]
+                ]
+            ).T
+            / catalogue.units.a
+        )
 
-        halo_radii = catalogue.radii.r_200mean[centrals]
+        halo_radii = catalogue.radii.r_200mean[centrals] / catalogue.units.a
 
         LOGGER.info("Finished loading halo catalogue data")
 

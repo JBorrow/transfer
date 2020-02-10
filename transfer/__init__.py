@@ -9,6 +9,6 @@ Josh Borrow (joshua.borrow@durham.ac.uk) (2020).
 """
 
 import logging
+import sys
 
-LOGGER = logging.getLogger("LagrangianTransferLogger")
-LOGGER.setLevel(10)
+LOGGER = logging.getLogger("TransferLogger")

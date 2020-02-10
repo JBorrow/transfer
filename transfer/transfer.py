@@ -2,8 +2,8 @@
 Contains the core jit-ified functions for computing transfer.
 """
 
-from numpy import zeros, array, int64, float64
-from numba import njit, jitclass
+from numpy import zeros, array
+from numba import njit, jitclass, int32, int64, float64
 
 from typing import Tuple
 
@@ -79,13 +79,13 @@ class TransferOutput(object):
         return
 
 
-@njit
+@njit(parallel=True)
 def calculate_transfer_masses(
-    haloes: int64[:],
-    lagrangain_regions: int64[:],
-    particle_masses: float64[:],
+    haloes: int32,
+    lagrangian_regions: int32,
+    particle_masses: float64,
     initial_particle_mass: float64,
-    number_of_groups: int64,
+    number_of_groups: int32,
 ) -> TransferOutput:
     """
     Calculates the transfer masses comparing lagrangian region IDs and
@@ -132,13 +132,13 @@ def calculate_transfer_masses(
     LR IDs lead to out-of-bounds behaviour, instead of skipping.
     """
 
-    number_of_particles = haloes.size
+    number_of_particles = len(lagrangian_regions)
 
     # Output mass arrays
     in_halo = zeros(number_of_groups, dtype=float64)
     in_halo_from_own_lr = zeros(number_of_groups, dtype=float64)
     in_halo_from_other_lr = zeros(number_of_groups, dtype=float64)
-    in_halo_from_outside_lr = zeroes(number_of_groups, dtype=float64)
+    in_halo_from_outside_lr = zeros(number_of_groups, dtype=float64)
 
     in_lr = zeros(number_of_groups, dtype=float64)
     in_other_halo_from_lr = zeros(number_of_groups, dtype=float64)
@@ -167,14 +167,15 @@ def calculate_transfer_masses(
         in_other_halo_from_lr[lr] += initial_particle_mass if particle_in_other else 0.0
         outside_haloes[lr] += initial_particle_mass if particle_now_outside else 0.0
 
+    # Only accepts non-keyword arguments - be careful of ordering!
     output = TransferOutput(
-        in_halo=in_halo,
-        in_halo_from_own_lr=in_halo_from_own_lr,
-        in_halo_from_other_lr=in_halo_from_other_lr,
-        in_halo_from_outside_lr=in_halo_from_outside_lr,
-        in_lr=in_lr,
-        in_other_halo_from_lr=in_other_halo_from_lr,
-        outside_haloes=outside_haloes,
+        in_halo,
+        in_halo_from_own_lr,
+        in_halo_from_other_lr,
+        in_halo_from_outside_lr,
+        in_lr,
+        in_other_halo_from_lr,
+        outside_haloes,
     )
 
     return output
