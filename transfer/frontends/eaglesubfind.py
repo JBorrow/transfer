@@ -193,7 +193,7 @@ class EAGLESnapshotData(SnapshotData):
 
     def load_particle_data(self):
         """
-        Loads the particle data from a snapshot using ``swiftsimio``.
+        Loads the particle data from a snapshot using ``h5py``.
         """
 
         self.boxsize = data.metadata.boxsize
