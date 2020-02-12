@@ -11,7 +11,7 @@ from transfer.data import ParticleData, SnapshotData
 from typing import Optional
 from unyt import unyt_array, unyt_quantity
 from math import pow
-from numpy import full, concatenate
+from numpy import full, concatenate, isin
 
 import h5py
 
@@ -60,7 +60,7 @@ class EAGLEParticleData(ParticleData):
         Loads the coordinates from the file, returning an unyt array.
         """
 
-        raw, cgs = load_data("Coordinates")
+        raw, cgs = self.load_data("Coordinates")
 
         units = unyt_quantity(cgs, units="cm").to("Mpc")
 
@@ -72,7 +72,7 @@ class EAGLEParticleData(ParticleData):
         """
 
         try:
-            raw, cgs = load_data("Mass")
+            raw, cgs = self.load_data("Mass")
         except KeyError:
             # Somebody thought it was a good idea in EAGLE to remove the
             # Mass attribute from PartType1.
@@ -94,9 +94,9 @@ class EAGLEParticleData(ParticleData):
         Loads the Particle IDs from the file, returning an unyt array.
         """
 
-        raw, _ = load_data("ParticleIDs")
+        raw, _ = self.load_data("ParticleIDs")
 
-        return unyt_array(raw, units="none")
+        return unyt_array(raw, units=None)
 
     def load_data(self, array_name: str):
         """
@@ -123,11 +123,13 @@ class EAGLEParticleData(ParticleData):
 
         full_path = f"/PartType{self.particle_type}/{array_name}"
 
+        LOGGER.info(f"Loading data from {full_path}.")
+
         output = []
 
         with h5py.File(f"{self.filename}.0.hdf5", "r") as handle:
-            units = handle[array_name].attrs["CGSConversionFactor"]
-            h_exponent = handle[array_name].attrs["h-scale-exponent"]
+            units = handle[full_path].attrs["CGSConversionFactor"]
+            h_exponent = handle[full_path].attrs["h-scale-exponent"]
             h_factor = pow(handle["Header"].attrs["HubbleParam"], h_exponent)
             units *= h_factor
 
@@ -135,7 +137,7 @@ class EAGLEParticleData(ParticleData):
             current_filename = f"{self.filename}.{file}.hdf5"
 
             with h5py.File(current_filename, "r") as handle:
-                output.append(handle[to_read][...])
+                output.append(handle[full_path][...])
 
         output = concatenate(output)
 
@@ -184,10 +186,27 @@ class EAGLESnapshotData(SnapshotData):
             Number of files that the halo file is split into.
         """
 
-        super().__init__(filename=filename, halo_filename=halo_filename)
-
         self.num_files_particles = num_files_particles
         self.num_files_halo = num_files_halo
+
+        self.load_boxsize(filename=filename)
+
+        super().__init__(filename=filename, halo_filename=halo_filename)
+
+        return
+
+    def load_boxsize(self, filename: str):
+        """
+        Loads the boxsize from one of the particle files.
+        """
+
+        with h5py.File(f"{filename}.0.hdf5", "r") as handle:
+            hubble_param = handle["Header"].attrs["HubbleParam"]
+            cgs = handle["Units"].attrs["UnitLength_in_cm"] / hubble_param
+            boxsize = handle["Header"].attrs["BoxSize"]
+
+        units = unyt_quantity(cgs, units="cm").to("Mpc")
+        self.boxsize = unyt_quantity(boxsize, units=units)
 
         return
 
@@ -196,20 +215,27 @@ class EAGLESnapshotData(SnapshotData):
         Loads the particle data from a snapshot using ``h5py``.
         """
 
-        self.boxsize = data.metadata.boxsize
-
         for particle_type, particle_name in zip(
-            [0, 1, 4], ["dark_matter", "gas", "stars"]
+            [1, 0, 4], ["dark_matter", "gas", "stars"]
         ):
-            setattr(
-                self,
-                particle_name,
-                EAGLEParticleData(
-                    filename=self.filename,
-                    particle_type=particle_type,
-                    num_files=self.num_files_particles,
-                ),
-            )
+            try:
+                setattr(
+                    self,
+                    particle_name,
+                    EAGLEParticleData(
+                        filename=self.filename,
+                        particle_type=particle_type,
+                        num_files=self.num_files_particles,
+                    ),
+                )
+            except KeyError:
+                # No particles of this type (e.g. stars in ICs)
+                LOGGER.info((
+                    f"No particles of type {particle_type} ({particle_name}) "
+                    "in this file. Skipping."
+                ))
+
+                setattr(self, particle_name, None)
 
         return
 
@@ -239,10 +265,8 @@ class EAGLESnapshotData(SnapshotData):
         with h5py.File(f"{self.halo_filename}.0.hdf5", "r") as handle:
             hubble_param = handle["Header"].attrs["HubbleParam"]
             cgs = handle["Units"].attrs["UnitLength_in_cm"] / hubble_param
-            boxsize = handle["Header"].attrs["BoxSize"]
 
         units = unyt_quantity(cgs, units="cm").to("Mpc")
-        self.boxsize = unyt_quantity(boxsize, units=units)
 
         # FoF group info; this will be sliced
         center_of_potential = []
@@ -262,7 +286,8 @@ class EAGLESnapshotData(SnapshotData):
                 central_group_numbers.append(group_number[sub_group_number == 0])
 
         # We currently have a list of arrays, need to stick together
-        central_group_numbers = concatenate(central_group_numbers)
+        # Numbering stars at 1 for some reason...
+        central_group_numbers = concatenate(central_group_numbers) - 1
 
         # This slicing removes all non-central FoF groups.
         center_of_potential = concatenate(center_of_potential)[central_group_numbers]
@@ -270,6 +295,8 @@ class EAGLESnapshotData(SnapshotData):
 
         halo_coordinates = unyt_array(center_of_potential, units=units)
         halo_radii = unyt_array(r_200mean, units=units)
+
+        self.number_of_groups = halo_radii.size
 
         LOGGER.info("Finished loading halo catalogue data")
 
