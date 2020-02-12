@@ -11,4 +11,6 @@ Josh Borrow (joshua.borrow@durham.ac.uk) (2020).
 import logging
 import sys
 
+from transfer.__version__ import __version__
+
 LOGGER = logging.getLogger("TransferLogger")
