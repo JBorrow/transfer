@@ -164,7 +164,7 @@ def find_neighbour_distances(
     return distances
 
 
-def SpreadMetricCalculator(object):
+class SpreadMetricCalculator(object):
     """
     Calculates the spread metric and stores the result in various
     attributes.
