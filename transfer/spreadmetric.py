@@ -88,7 +88,7 @@ def find_closest_neighbours(
     return dark_matter_neighbours, gas_neighbours
 
 
-@numba.njit(parallel=True, fastmath=True)
+@njit(parallel=True, fastmath=True)
 def find_neighbour_distances(
     neighbours: Dict[int64, int64],
     particle_coordinates: float64,
