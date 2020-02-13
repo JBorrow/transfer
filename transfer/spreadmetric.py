@@ -352,7 +352,7 @@ def SpreadMetricCalculator(object):
             dark_matter_ids=self.dark_matter_initial_ids,
             boxsize=self.boxsize,
             gas_coordinates=self.gas_initial_coordinates,
-            gas_ids=gas_initial_coordinates,
+            gas_ids=self.gas_initial_ids,
         )
         LOGGER.info("Finished search for initial neighbours")
 
@@ -369,12 +369,12 @@ def SpreadMetricCalculator(object):
         if self.dark_matter_final_coordinates is not None:
             LOGGER.info("Computing dark matter spread metric")
             self.dark_matter_spread = find_neighbour_distances(
-                neighbours=self.dark_matter_neighbours,
-                particle_coordinates=self.dark_matter_final_coordinates,
-                dark_matter_coordinates=self.dark_matter_final_coordinates,
-                particle_ids=self.dark_matter_final_ids,
-                dark_matter_ids=self.dark_matter_final_ids,
-                boxsize=self.boxsize,
+                neighbours=self.dark_matter_neighbours.value,
+                particle_coordinates=self.dark_matter_final_coordinates.value,
+                dark_matter_coordinates=self.dark_matter_final_coordinates.value,
+                particle_ids=self.dark_matter_final_ids.value,
+                dark_matter_ids=self.dark_matter_final_ids.value,
+                boxsize=self.boxsize.value,
             )
             self.dark_matter_spread = unyt_array(
                 self.dark_matter_spread, units=self.dark_matter_final_coordinates.units
@@ -386,12 +386,12 @@ def SpreadMetricCalculator(object):
         if self.gas_final_coordinates is not None:
             LOGGER.info("Computing gas spread metric")
             self.gas_spread = find_neighbour_distances(
-                neighbours=self.gas_neighbours,
-                particle_coordinates=self.gas_final_coordinates,
-                dark_matter_coordinates=self.dark_matter_final_coordinates,
-                particle_ids=self.gas_final_ids,
-                dark_matter_ids=self.dark_matter_final_ids,
-                boxsize=self.boxsize,
+                neighbours=self.gas_neighbours.value,
+                particle_coordinates=self.gas_final_coordinates.value,
+                dark_matter_coordinates=self.dark_matter_final_coordinates.value,
+                particle_ids=self.gas_final_ids.value,
+                dark_matter_ids=self.dark_matter_final_ids.value,
+                boxsize=self.boxsize.value,
             )
             self.gas_spread = unyt_array(
                 self.gas_spread, units=self.gas_final_coordinates.units
@@ -404,11 +404,11 @@ def SpreadMetricCalculator(object):
             LOGGER.info("Computing star spread metric")
             self.star_spread = find_neighbour_distances(
                 neighbours=self.star_neighbours,
-                particle_coordinates=self.star_final_coordinates,
-                dark_matter_coordinates=self.dark_matter_final_coordinates,
-                particle_ids=self.star_final_ids,
-                dark_matter_ids=self.dark_matter_final_ids,
-                boxsize=self.boxsize,
+                particle_coordinates=self.star_final_coordinates.value,
+                dark_matter_coordinates=self.dark_matter_final_coordinates.value,
+                particle_ids=self.star_final_ids.value,
+                dark_matter_ids=self.dark_matter_final_ids.value,
+                boxsize=self.boxsize.value,
             )
             self.star_spread = unyt_array(
                 self.star_spread, units=self.star_final_coordinates.units
