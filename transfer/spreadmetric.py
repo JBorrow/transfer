@@ -6,10 +6,11 @@ dark matter particles must be 'conserved'.
 
 from transfer import LOGGER
 from transfer.holder import SimulationData
+from transfer.utils.numba import create_numba_hashtable
 
 from unyt import unyt_array
 from scipy.spatial import cKDTree
-from numpy import int64, float64
+from numpy import int64, float64, empty, arange
 from numba import njit
 from math import sqrt
 
@@ -22,7 +23,7 @@ def find_closest_neighbours(
     boxsize: unyt_array,
     gas_coordinates: Optional[unyt_array] = None,
     gas_ids: Optional[unyt_array] = None,
-) -> Tuple[Dict[int64, int64]]:
+) -> Tuple[Dict[int, int]]:
     """
     Finds the closest neighbours in the initial conditions, and returns a
     hashtable between their IDs.
@@ -51,15 +52,23 @@ def find_closest_neighbours(
     Returns
     -------
 
-    dark_matter_neighbours: dict
+    dark_matter_neighbours: numba.typed.Dict
         Dictionary of dark matter neighbours. Takes the particle and links
         to its neighbour so dark_matter_neighbours[id] gives the ID of the
         particle that was its nearest neighbour.
 
-    gas_neighbours: dict
+    gas_neighbours: numba.typed.Dict
         Dictionary of gas neighbours. Takes the praticle and links it to its
         nearest dark matter neighbour, so gas_neighbours[id] gives the ID of
         the particle that was its nearest neighbour.
+
+
+    Notes
+    -----
+
+    The returned hashtables are slower than their pythonic cousins
+    in regular use. However, in ``@jit``ified functions, they are
+    significantly faster.
     """
 
     boxsize = boxsize.to(dark_matter_coordinates.units)
@@ -71,17 +80,19 @@ def find_closest_neighbours(
     LOGGER.info("Finished tree build")
 
     # For dark matter, the cloest particle will be ourself.
-    _, closest_indicies = tree.query(x=dark_matter_coordinates, k=2, n_jobs=-1)
+    _, closest_indicies = tree.query(x=dark_matter_coordinates.value, k=2, n_jobs=-1)
 
-    dark_matter_neighbours = dict(
-        zip(dark_matter_ids, dark_matter_ids[closest_indicies[:, 1]])
+    dark_matter_neighbours = create_numba_hashtable(
+        dark_matter_ids.value, dark_matter_ids.value[closest_indicies[:, 1]]
     )
 
     # For gas, we can just use closest neighbour
     if gas_coordinates is not None:
-        _, closest_indicies = tree.query(x=gas_coordinates, k=1, n_jobs=-1)
+        _, closest_indicies = tree.query(x=gas_coordinates.value, k=1, n_jobs=-1)
 
-        gas_neighbours = dict(zip(gas_ids, dark_matter_ids[closest_indicies]))
+        gas_neighbours = create_numba_hashtable(
+            gas_ids.value, dark_matter_ids.value[closest_indicies]
+        )
     else:
         gas_neighbours = None
 
@@ -90,7 +101,7 @@ def find_closest_neighbours(
 
 @njit(parallel=True, fastmath=True)
 def find_neighbour_distances(
-    neighbours: Dict[int64, int64],
+    neighbours: Dict[int, int],
     particle_coordinates: float64,
     dark_matter_coordinates: float64,
     particle_ids: int64,
@@ -141,8 +152,12 @@ def find_neighbour_distances(
     sorted. If they are storted, it may help speed things up, though.
     """
 
-    distances = np.empty(particle_ids.size, dtype=float64)
-    dark_matter_hashtable = dict(zip(dark_matter_ids, range(dark_matter_ids.size)))
+    distances = empty(particle_ids.size, dtype=float64)
+
+    dark_matter_hashtable = create_numba_hashtable(
+        dark_matter_ids, arange(dark_matter_ids.size)
+    )
+
     half_boxsize = 0.5 * boxsize
 
     for particle in range(particle_ids.size):
@@ -153,18 +168,26 @@ def find_neighbour_distances(
         nearest_dm_position = dark_matter_hashtable[nearest_dm_id]
         x_dm = dark_matter_coordinates[nearest_dm_position]
 
-        dx = x - x_dm
+        # This is done explicitly to let the compiler know
+        # that we only 'care' about the first three elements
+        # as it believes that x, x_dm are generic ndarrays.
+        dx = x[0] - x_dm[0]
+        dy = x[1] - x_dm[1]
+        dz = x[2] - x_dm[2]
 
-        # Periodic box wrapping
         dx -= (dx > half_boxsize) * boxsize
         dx += (dx <= -half_boxsize) * boxsize
+        dy -= (dy > half_boxsize) * boxsize
+        dy += (dy <= -half_boxsize) * boxsize
+        dz -= (dz > half_boxsize) * boxsize
+        dz += (dz <= -half_boxsize) * boxsize
 
-        distances[particle] = sqrt(dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2])
+        distances[particle] = sqrt(dx * dx + dy * dy + dz * dz)
 
     return distances
 
 
-def SpreadMetricCalculator(object):
+class SpreadMetricCalculator(object):
     """
     Calculates the spread metric and stores the result in various
     attributes.
@@ -252,12 +275,13 @@ def SpreadMetricCalculator(object):
     star_final_ids: Optional[unyt_array] = None
     boxsize: Optional[unyt_array] = None
 
-    dark_matter_neighbours: Optional[Dict[int64:int64]] = None
-    gas_neighbours: Optional[Dict[int64:int64]] = None
+    dark_matter_neighbours: Optional[Dict[int64,int64]] = None
+    gas_neighbours: Optional[Dict[int64,int64]] = None
 
     dark_matter_spread: Optional[unyt_array] = None
     gas_spread: Optional[unyt_array] = None
     star_spread: Optional[unyt_array] = None
+
 
     def __init__(
         self,
@@ -278,10 +302,10 @@ def SpreadMetricCalculator(object):
         boxsize: Optional[unyt_array] = None,
     ):
         # If present, extract everything from the simulation object.
-
         self.simulation = simulation
 
         if simulation is not None:
+
             initial_snap = simulation.initial_snapshot
             final_snap = simulation.final_snapshot
 
@@ -333,7 +357,7 @@ def SpreadMetricCalculator(object):
             self.star_final_coordinates = star_final_coordinates
 
         if star_final_ids is not None:
-            self.star_final_coordinates = star_final_coordinates
+            self.star_final_ids = star_final_ids
 
         if boxsize is not None:
             self.boxsize = boxsize
@@ -369,7 +393,7 @@ def SpreadMetricCalculator(object):
         if self.dark_matter_final_coordinates is not None:
             LOGGER.info("Computing dark matter spread metric")
             self.dark_matter_spread = find_neighbour_distances(
-                neighbours=self.dark_matter_neighbours.value,
+                neighbours=self.dark_matter_neighbours,
                 particle_coordinates=self.dark_matter_final_coordinates.value,
                 dark_matter_coordinates=self.dark_matter_final_coordinates.value,
                 particle_ids=self.dark_matter_final_ids.value,
@@ -386,7 +410,7 @@ def SpreadMetricCalculator(object):
         if self.gas_final_coordinates is not None:
             LOGGER.info("Computing gas spread metric")
             self.gas_spread = find_neighbour_distances(
-                neighbours=self.gas_neighbours.value,
+                neighbours=self.gas_neighbours,
                 particle_coordinates=self.gas_final_coordinates.value,
                 dark_matter_coordinates=self.dark_matter_final_coordinates.value,
                 particle_ids=self.gas_final_ids.value,
@@ -403,7 +427,7 @@ def SpreadMetricCalculator(object):
         if self.star_final_coordinates is not None:
             LOGGER.info("Computing star spread metric")
             self.star_spread = find_neighbour_distances(
-                neighbours=self.star_neighbours,
+                neighbours=self.gas_neighbours,
                 particle_coordinates=self.star_final_coordinates.value,
                 dark_matter_coordinates=self.dark_matter_final_coordinates.value,
                 particle_ids=self.star_final_ids.value,
