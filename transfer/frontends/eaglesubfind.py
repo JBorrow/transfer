@@ -311,6 +311,9 @@ class EAGLESnapshotData(SnapshotData):
                     boxsize=self.boxsize,
                 )
 
+        self.halo_coordinates = halo_coordinates
+        self.halo_radii = halo_radii
+
         return
 
     def sort_all_data(self):
