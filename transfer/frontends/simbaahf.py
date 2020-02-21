@@ -10,15 +10,14 @@ from transfer.data import ParticleData, SnapshotData
 
 from typing import Optional
 from unyt import unyt_array, unyt_quantity
-from math import pow
-from numpy import full, concatenate, isin, genfromtxt
+from numpy import full, concatenate, isin, genfromtxt, array, uint64, unique
 
 import h5py
 
 # Units without the h-correction.
-unit_mass = unyt.unyt_quantity(1e10, unyt.Solar_Mass)
-unit_length = unyt.unyt_quantity(1.0, unyt.kpc)
-unit_velocity = unyt.unyt_quantity(1.0, unyt.km / unyt.s)
+unit_mass = unyt_quantity(1e10, "Solar_Mass")
+unit_length = unyt_quantity(1.0, "kpc")
+unit_velocity = unyt_quantity(1.0,"km/s")
 
 
 class SIMBAParticleData(ParticleData):
@@ -27,7 +26,7 @@ class SIMBAParticleData(ParticleData):
     class with real functionality for reading EAGLE snapshots.
     """
 
-    def __init__(self, filename: str, particle_type: int):
+    def __init__(self, filename: str, particle_type: int, truncate_ids: Optional[int] = None):
         """
         Parameters
         ----------
@@ -37,11 +36,16 @@ class SIMBAParticleData(ParticleData):
 
         particle_type: int
             The particle type to load (0, 1, 4, etc.)
+
+        truncate_ids: int, optional
+            Truncate IDs above this by using the % operator; i.e. discard
+            higher bits.
         """
         super().__init__()
 
         self.filename = filename
         self.particle_type = particle_type
+        self.truncate_ids = truncate_ids
 
         LOGGER.info(f"Loading particle data from particle type {particle_type}")
         self.coordinates = self.load_coordinates()
@@ -70,7 +74,7 @@ class SIMBAParticleData(ParticleData):
         Loads the masses from the file, returning an unyt array.
         """
 
-        raw, h = self.load_data("Mass")
+        raw, h = self.load_data("Masses")
 
         units = unyt_quantity(1.0 / h, units=unit_mass).to("Solar_Mass")
 
@@ -83,7 +87,7 @@ class SIMBAParticleData(ParticleData):
 
         raw, _ = self.load_data("ParticleIDs")
 
-        return unyt_array(raw, units=None)
+        return unyt_array(raw.astype(uint64), units=None, dtype=uint64)
 
     def load_data(self, array_name: str):
         """
@@ -112,8 +116,8 @@ class SIMBAParticleData(ParticleData):
         LOGGER.info(f"Loading data from {full_path}.")
 
         with h5py.File(f"{self.filename}", "r") as handle:
-            h = pow(handle["Header"].attrs["HubbleParam"], h_exponent)
-            output = handle[full_path]
+            h = handle["Header"].attrs["HubbleParam"]
+            output = handle[full_path][:]
 
         return output, h
 
@@ -124,7 +128,20 @@ class SIMBAParticleData(ParticleData):
         new generations of particles are spawned).
         """
 
-        LOGGER.info("Beginning particle ID postprocessing (empty).")
+        if self.truncate_ids is None:
+            LOGGER.info("Beginning particle ID postprocessing (empty).")
+        else:
+            LOGGER.info("Beginning particle ID postprocessing.")
+            LOGGER.info(f"Truncating particle IDs above {self.truncate_ids}")
+
+            self.particle_ids %= self.truncate_ids
+            
+            # TODO: Remove this requiremnet. At the moment, isin() breaks when
+            #       you have repeated values.
+
+            self.particle_ids, indicies = unique(self.particle_ids, return_index=True)
+            self.coordinates = self.coordinates[indicies]
+            self.masses = self.masses[indicies]
 
         return
 
@@ -137,7 +154,7 @@ class SIMBASnapshotData(SnapshotData):
     """
 
     def __init__(
-        self, filename: str, halo_filename: Optional[str] = None,
+            self, filename: str, halo_filename: Optional[str] = None, truncate_ids: Optional[dict] = None,
     ):
         """
         Parameters
@@ -148,9 +165,17 @@ class SIMBASnapshotData(SnapshotData):
 
         halo_filename: str, optional
             Filename for the halo file.
+
+        truncate_ids: Dict[int,int], optional
+            Dictionary from particle_type (i.e. 0, 1, 4): truncation 
+            amount.
+
+            Truncate IDs above this by using the % operator; i.e. discard
+            higher bits.
         """
 
         self.load_boxsize(filename=filename)
+        self.truncate_ids = truncate_ids
 
         super().__init__(filename=filename, halo_filename=halo_filename)
 
@@ -179,12 +204,14 @@ class SIMBASnapshotData(SnapshotData):
         for particle_type, particle_name in zip(
             [1, 0, 4], ["dark_matter", "gas", "stars"]
         ):
+            truncate_ids = self.truncate_ids[particle_type] if self.truncate_ids is not None else None
+
             try:
                 setattr(
                     self,
                     particle_name,
                     SIMBAParticleData(
-                        filename=self.filename, particle_type=particle_type,
+                        filename=self.filename, particle_type=particle_type, truncate_ids=truncate_ids
                     ),
                 )
             except KeyError:
@@ -202,7 +229,7 @@ class SIMBASnapshotData(SnapshotData):
 
     def load_halo_data(self):
         """
-        Loads haloes from AHF and, using the most bound particle
+        Loads haloes from AHF and, using the center of mass of the halo
         and R_vir, uses trees through :meth:`ParticleDataset.associate_haloes`
         to set the halo values.
 
@@ -214,19 +241,19 @@ class SIMBASnapshotData(SnapshotData):
 
         LOGGER.info(f"Loading halo catalogue data from {self.halo_filename}")
 
-        raw_data = genfromtxt(self.halo_filename, usecols=[1, 11, 46, 47, 48])
+        raw_data = genfromtxt(self.halo_filename, usecols=[1, 5, 6, 7, 11]).T
 
-        hostHalo = raw_data[0]
+        hostHalo = raw_data[0].astype(int)
         mask = hostHalo == -1
 
-        xmbp = raw_data[2][mask]
-        ymbp = raw_data[3][mask]
-        zmbp = raw_data[4][mask]
+        xmbp = raw_data[1][mask]
+        ymbp = raw_data[2][mask]
+        zmbp = raw_data[3][mask]
 
-        center_of_potential = np.array([xmbp, ymbp, zmbp])
-        r_vir = raw_data[1][mask]
+        center_of_potential = array([xmbp, ymbp, zmbp]).T
+        r_vir = raw_data[4][mask]
 
-        units = unit_length / self.hubble_param
+        units = unyt_quantity(1.0 / self.hubble_param, units=unit_length).to("Mpc")
 
         halo_coordinates = unyt_array(center_of_potential, units=units)
         halo_radii = unyt_array(r_vir, units=units)
