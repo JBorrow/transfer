@@ -3,7 +3,8 @@ Contains the core jit-ified functions for computing transfer.
 """
 
 from numpy import zeros, array
-from numba import njit, jitclass, int32, int64, float64
+from numba import njit, int32, int64, float64
+from numba.experimental import jitclass
 
 from typing import Tuple
 
