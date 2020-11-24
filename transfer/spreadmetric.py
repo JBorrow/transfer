@@ -275,13 +275,12 @@ class SpreadMetricCalculator(object):
     star_final_ids: Optional[unyt_array] = None
     boxsize: Optional[unyt_array] = None
 
-    dark_matter_neighbours: Optional[Dict[int64,int64]] = None
-    gas_neighbours: Optional[Dict[int64,int64]] = None
+    dark_matter_neighbours: Optional[Dict[int64, int64]] = None
+    gas_neighbours: Optional[Dict[int64, int64]] = None
 
     dark_matter_spread: Optional[unyt_array] = None
     gas_spread: Optional[unyt_array] = None
     star_spread: Optional[unyt_array] = None
-
 
     def __init__(
         self,
@@ -389,6 +388,9 @@ class SpreadMetricCalculator(object):
         with this object). If relevant, sets: ``self.dark_matter_spread``,
         ``self.gas_spread``, ``self.star_spread``.
         """
+
+        if self.dark_matter_neighbours is None:
+            self.find_neighbours()
 
         if self.dark_matter_final_coordinates is not None:
             LOGGER.info("Computing dark matter spread metric")

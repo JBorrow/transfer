@@ -35,7 +35,10 @@ class SWIFTParticleData(ParticleData):
         LOGGER.info(f"Loading particle data from {SWIFTDataset}")
         self.coordinates = SWIFTDataset.coordinates
         self.masses = SWIFTDataset.masses
-        self.particle_ids = SWIFTDataset.particle_ids
+        try:
+            self.particle_ids = SWIFTDataset.progenitor_particle_ids
+        except AttributeError:
+            self.particle_ids = SWIFTDataset.particle_ids
         LOGGER.info(f"Finished loading data from {SWIFTDataset}")
         LOGGER.info(f"Loaded {self.particle_ids.size} particles")
 
@@ -73,7 +76,8 @@ class SWIFTSnapshotData(SnapshotData):
 
         data = load_snapshot(self.filename)
 
-        self.boxsize = data.metadata.boxsize
+        # Let's just assume it's a box, eh?
+        self.boxsize = data.metadata.boxsize[0]
 
         for particle_type in ["dark_matter", "gas", "stars"]:
             swift_dataset = getattr(data, particle_type, None)
