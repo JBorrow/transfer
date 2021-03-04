@@ -10,7 +10,7 @@ from transfer.data import ParticleData, SnapshotData
 
 from typing import Optional
 from unyt import unyt_array, unyt_quantity
-from numpy import full, concatenate, isin, genfromtxt, array, uint64, unique
+from numpy import full, concatenate, isin, genfromtxt, array, int64, unique
 
 import h5py
 
@@ -87,7 +87,7 @@ class SIMBAParticleData(ParticleData):
 
         raw, _ = self.load_data("ParticleIDs")
 
-        return unyt_array(raw.astype(uint64), units=None, dtype=uint64)
+        return unyt_array(raw.astype(int64), units=None, dtype=int64)
 
     def load_data(self, array_name: str):
         """
@@ -134,12 +134,14 @@ class SIMBAParticleData(ParticleData):
             LOGGER.info("Beginning particle ID postprocessing.")
             LOGGER.info(f"Truncating particle IDs above {self.truncate_ids}")
 
-            self.particle_ids %= self.truncate_ids
+            self.particle_ids %= int64(self.truncate_ids)
             
             # TODO: Remove this requiremnet. At the moment, isin() breaks when
             #       you have repeated values.
 
             self.particle_ids, indicies = unique(self.particle_ids, return_index=True)
+            
+            self.particle_ids = self.particle_ids.astype(int64)
             self.coordinates = self.coordinates[indicies]
             self.masses = self.masses[indicies]
 
